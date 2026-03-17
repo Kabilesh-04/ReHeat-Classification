@@ -8,29 +8,52 @@ warnings.filterwarnings("ignore")
 
 app = Flask(__name__)
 
+# Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MODEL_DIR = os.path.join(BASE_DIR, "models")
 
 models = {}
 
-# Load all models from subfolders
-for oil_type in os.listdir(MODEL_DIR):
-    oil_path = os.path.join(MODEL_DIR, oil_type)
 
-    if os.path.isdir(oil_path):
-        for file in os.listdir(oil_path):
-            if file.endswith(".joblib"):
-                model_key = f"{oil_type}_{file.replace('.joblib','')}"
-                model_path = os.path.join(oil_path, file)
+# -------------------------------
+# Load Models Safely
+# -------------------------------
+def load_models():
+    loaded_models = {}
 
-                try:
-                    models[model_key] = joblib.load(model_path)
-                except Exception as e:
-                    print(f"Failed to load {model_key}: {e}")
+    print(f"BASE_DIR: {BASE_DIR}")
+    print(f"MODEL_DIR: {MODEL_DIR}")
 
-print(f"Loaded {len(models)} models")
+    if not os.path.exists(MODEL_DIR):
+        print(f"WARNING: Model directory not found: {MODEL_DIR}")
+        return loaded_models
+
+    for oil_type in os.listdir(MODEL_DIR):
+        oil_path = os.path.join(MODEL_DIR, oil_type)
+
+        if os.path.isdir(oil_path):
+            for file in os.listdir(oil_path):
+                if file.endswith(".joblib"):
+                    model_key = f"{oil_type}_{file.replace('.joblib','')}"
+                    model_path = os.path.join(oil_path, file)
+
+                    try:
+                        loaded_models[model_key] = joblib.load(model_path)
+                        print(f"Loaded: {model_key}")
+                    except Exception as e:
+                        print(f"Failed to load {model_key}: {e}")
+
+    print(f"Total models loaded: {len(loaded_models)}")
+    return loaded_models
 
 
+# Load models at startup
+models = load_models()
+
+
+# -------------------------------
+# Routes
+# -------------------------------
 @app.route("/")
 def home():
     return "Oil Prediction Models API Running"
@@ -71,7 +94,7 @@ def predict():
         if np.all(features == 0):
             return jsonify({"error": "Invalid input: all features are zero"}), 400
 
-        # Handle zero variance (all values same)
+        # Handle zero variance
         if np.std(features) == 0:
             features = features + 1e-6
 
@@ -90,5 +113,8 @@ def predict():
         return jsonify({"error": str(e)}), 500
 
 
+# -------------------------------
+# Run App (for local dev)
+# -------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
