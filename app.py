@@ -8,9 +8,11 @@ warnings.filterwarnings("ignore")
 
 app = Flask(__name__)
 
+# -------------------------------
 # Paths
+# -------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(BASE_DIR, "models")
+MODEL_DIR = os.path.join(BASE_DIR, "Models")  
 
 models = {}
 
@@ -71,41 +73,51 @@ def predict():
     try:
         data = request.get_json()
 
-        # Validate request
-        if not data or "model" not in data or "features" not in data:
-            return jsonify({"error": "Missing model or features"}), 400
-
-        model_name = data["model"]
-        features = np.array(data["features"], dtype=float)
+        # Get values safely
+        model_name = data.get("model")
+        raw_features = data.get("features", [])
 
         # Validate model
         if model_name not in models:
             return jsonify({"error": "Model not found"}), 400
 
-        # Validate feature length
-        if features.shape[0] != 16:
-            return jsonify({"error": "Expected 16 features"}), 400
+        # -------------------------------
+        # Clean & Normalize Input
+        # -------------------------------
+        features = []
 
-        # Check for NaN or Inf
-        if np.isnan(features).any() or np.isinf(features).any():
-            return jsonify({"error": "Invalid values (NaN or Inf)"}), 400
+        for x in raw_features:
+            try:
+                val = float(x)
 
-        # Prevent all-zero input
-        if np.all(features == 0):
-            return jsonify({"error": "Invalid input: all features are zero"}), 400
+                # Replace NaN / Inf with 0
+                if np.isnan(val) or np.isinf(val):
+                    val = 0.0
 
-        # Handle zero variance
-        if np.std(features) == 0:
-            features = features + 1e-6
+            except:
+                val = 0.0
 
-        features = features.reshape(1, -1)
+            features.append(val)
 
+        # Ensure exactly 16 features
+        if len(features) < 16:
+            features += [0.0] * (16 - len(features))
+        elif len(features) > 16:
+            features = features[:16]
+
+        features = np.array(features).reshape(1, -1)
+
+        # -------------------------------
         # Prediction
+        # -------------------------------
         prediction = models[model_name].predict(features)
+
+        # Round to 4 decimal places
+        rounded_prediction = [round(float(p), 4) for p in prediction]
 
         return jsonify({
             "model": model_name,
-            "prediction": prediction.tolist()
+            "prediction": rounded_prediction
         })
 
     except Exception as e:
@@ -114,7 +126,20 @@ def predict():
 
 
 # -------------------------------
-# Run App (for local dev)
+# Debug Route (VERY USEFUL)
+# -------------------------------
+@app.route("/debug")
+def debug():
+    return {
+        "model_dir_exists": os.path.exists(MODEL_DIR),
+        "model_dir_path": MODEL_DIR,
+        "folders": os.listdir(MODEL_DIR) if os.path.exists(MODEL_DIR) else [],
+        "loaded_models": list(models.keys())
+    }
+
+
+# -------------------------------
+# Run App (local only)
 # -------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000)
